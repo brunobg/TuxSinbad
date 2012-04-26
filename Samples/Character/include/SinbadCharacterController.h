@@ -54,7 +54,6 @@ class Sample_Character;
 
 using namespace Ogre;
 
-#define NUM_ANIMS 13           // number of animations the character has
 #define CHAR_HEIGHT 5         // height of character's center of mass above ground
 #define CAM_HEIGHT 1           // height of camera above character's center of mass
 #define RUN_SPEED 17           // character running speed in units per second
@@ -65,6 +64,8 @@ using namespace Ogre;
 
 const unsigned int  m_Width = 640;
 const unsigned int m_Height = 480;
+typedef int AnimID;
+#define ANIM_NONE -1
 
 // Note: wont work as expected for > 5 users in scene
 static unsigned int g_UsersColors[] = {/*0x70707080*/0 ,0x80FF0000,0x80FF4500,0x80FF1493,0x8000ff00, 0x8000ced1,0x80ffd700};
@@ -91,26 +92,6 @@ class SinbadCharacterController
 {
 private:
 
-	// all the animations our character has, and a null ID
-	// some of these affect separate body parts and will be blended together
-	enum AnimID
-	{
-		ANIM_IDLE_BASE,
-		ANIM_IDLE_TOP,
-		ANIM_RUN_BASE,
-		ANIM_RUN_TOP,
-		ANIM_HANDS_CLOSED,
-		ANIM_HANDS_RELAXED,
-		ANIM_DRAW_SWORDS,
-		ANIM_SLICE_VERTICAL,
-		ANIM_SLICE_HORIZONTAL,
-		ANIM_DANCE,
-		ANIM_JUMP_START,
-		ANIM_JUMP_LOOP,
-		ANIM_JUMP_END,
-		ANIM_NONE
-	};
-
 public:
 	xn::Context m_Context;
 #if SHOW_DEPTH
@@ -124,11 +105,11 @@ public:
 	XnVSessionManager* m_pSessionManager;
 	XnVFlowRouter* m_pQuitFlow;
 	XnVSelectableSlider1D* m_pQuitSSlider;
-	
+
 	double m_SmoothingFactor;
 	int m_SmoothingDelta;
 
-	bool m_front;	
+	bool m_front;
 	bool suppress;
 
 	OgreBites::ParamsPanel* m_help;
@@ -176,7 +157,7 @@ public:
 		{
 			// start tracking
 			skeleton.StartTracking(nUserId);
-			
+
 			This->m_pStartPoseDetector->SetStartPoseState(true);
 			This->m_pEndPoseDetector->SetUserId(nUserId);
 
@@ -229,7 +210,7 @@ public:
 		This->m_quitSlider->setValue(0.5,false);
 		This->m_quitSlider->show();
 	}
-	
+
 	static void XN_CALLBACK_TYPE quitSSliderPPD(XnUInt32 nID, void* cxt)
 	{
 		SinbadCharacterController* This = (SinbadCharacterController*)cxt;
@@ -255,7 +236,7 @@ public:
 		if(fValue > 0.99)
 		{
 			exit(0);
-		} 
+		}
 
 		else if (fValue < 0.01)
 		{
@@ -264,14 +245,32 @@ public:
 			This->m_pSessionManager->EndSession();
 		}
 	}
-	
+
 	static void XN_CALLBACK_TYPE quitSSliderOAM(XnVDirection dir, void* cxt)
 	{
 		SinbadCharacterController* This = (SinbadCharacterController*)cxt;
 	}
 
-	SinbadCharacterController(Camera* cam)
+	SinbadCharacterController(Camera* cam) : mMeshFile("Sinbad.mesh"), mBaseAnimID(ANIM_NONE), mTopAnimID(ANIM_NONE)
 	{
+
+		// TODO: these are model dependent.
+		mRootBoneName = "Root";
+		// map mesh bones to openni bones
+		mBonesMap["Stomach"] = XN_SKEL_TORSO;
+		mBonesMap["Waist"] = XN_SKEL_WAIST;
+		mBonesMap["Root"] = XN_SKEL_WAIST;
+		mBonesMap["Chest"] = XN_SKEL_TORSO;
+		mBonesMap["Humerus.L"] = XN_SKEL_LEFT_SHOULDER;
+		mBonesMap["Humerus.R"] = XN_SKEL_RIGHT_SHOULDER;
+		mBonesMap["Ulna.L"] = XN_SKEL_LEFT_ELBOW;
+		mBonesMap["Ulna.R"] = XN_SKEL_RIGHT_ELBOW;
+		mBonesMap["Thigh.L"] = XN_SKEL_LEFT_HIP;
+		mBonesMap["Thigh.R"] = XN_SKEL_RIGHT_HIP;
+		mBonesMap["Calf.L"] = XN_SKEL_LEFT_KNEE;
+		mBonesMap["Calf.R"] = XN_SKEL_RIGHT_KNEE;
+		// end of model dependent code
+
 		setupBody(cam->getSceneManager());
 		setupCamera(cam);
 		setupAnimations();
@@ -319,16 +318,16 @@ public:
 		HardwarePixelBufferSharedPtr pixelBuffer = texture->getBuffer();
 
 		// Lock the pixel buffer and get a pixel box
-		pixelBuffer->lock(HardwareBuffer::HBL_DISCARD); 
+		pixelBuffer->lock(HardwareBuffer::HBL_DISCARD);
 		const PixelBox& pixelBox = pixelBuffer->getCurrentLock();
 
 		unsigned char* pDest = static_cast<unsigned char*>(pixelBox.data);
 
-		// Get label map 
+		// Get label map
 		xn::SceneMetaData smd;
 		m_UserGenerator.GetUserPixels(0, smd);
 		const XnLabel* pUsersLBLs = smd.Data();
-		
+
 		for (size_t j = 0; j < m_Height; j++)
 		{
 			pDest = static_cast<unsigned char*>(pixelBox.data) + j*pixelBox.rowPitch*4;
@@ -361,7 +360,7 @@ public:
 							color |= 0xFF070707;
 						}
 						if( j < m_Height*(m_pEndPoseDetector->GetDetectionPercent()))
-						{	
+						{
 							//hide user
 							color &= 0x20F0F0F0;
 						}
@@ -380,7 +379,7 @@ public:
 					color |= 0xFF070707;
 				}
 				if( j < m_Height*(m_pEndPoseDetector->GetDetectionPercent()))
-				{	
+				{
 					//hide user
 					color &= 0x20F0F0F0;
 				}
@@ -391,7 +390,7 @@ public:
 					color = 0;
 				}
 #endif
-				
+
 				// write to output buffer
 				*((unsigned int*)pDest) = color;
 				pDest+=4;
@@ -418,11 +417,11 @@ public:
 
 #if SHOW_DEPTH
 		VALIDATE_GENERATOR(XN_NODE_TYPE_DEPTH, "Depth", m_DepthGenerator);
-#endif 
+#endif
 		VALIDATE_GENERATOR(XN_NODE_TYPE_USER, "User", m_UserGenerator);
 		VALIDATE_GENERATOR(XN_NODE_TYPE_HANDS, "Gesture", m_GestureGenerator);
 		VALIDATE_GENERATOR(XN_NODE_TYPE_HANDS, "Hands", m_HandsGenerator);
-		
+
 		// Init NITE Controls (UI stuff)
 		m_pSessionManager = new XnVSessionManager;
 		rc = m_pSessionManager->Initialize(&m_Context, "Click", "RaiseHand");
@@ -434,9 +433,9 @@ public:
 		m_pQuitSSlider->RegisterPrimaryPointDestroy(this,quitSSliderPPD);
 		m_pQuitSSlider->RegisterOffAxisMovement(this,quitSSliderOAM);
 		m_pQuitSSlider->RegisterValueChange(this,quitSSliderVC);
-		
+
 		m_pQuitFlow = new XnVFlowRouter();
-		m_pQuitFlow->SetActive(m_pQuitSSlider);		
+		m_pQuitFlow->SetActive(m_pQuitSSlider);
 		m_pSessionManager->AddListener(m_pQuitFlow);
 
 		suppress = false;
@@ -456,7 +455,7 @@ public:
 		skel.SetSkeletonProfile(XN_SKEL_PROFILE_ALL);
 		skel.SetSmoothing(m_SmoothingFactor);
 		skel.RegisterCalibrationCallbacks(SinbadCharacterController::CalibrationStart, SinbadCharacterController::CalibrationEnd, this, m_hCalibrationCallbacks);
-		
+
 		// Make sure OpenNI nodes start generating
 		rc = m_Context.StartGeneratingAll();
 		CHECK_RC(rc, "StartGenerating");
@@ -473,7 +472,7 @@ public:
 	{
 		m_Context.WaitNoneUpdateAll();
 		m_pSessionManager->Update(&m_Context);
-			
+
 		UpdateDepthTexture();
 		updateBody(deltaTime);
 		updateAnimations(deltaTime);
@@ -483,34 +482,15 @@ public:
 
 	void injectKeyDown(const OIS::KeyEvent& evt)
 	{
+#ifdef TODO_ANIMATION
 		if (evt.key == OIS::KC_Q && (mTopAnimID == ANIM_IDLE_TOP || mTopAnimID == ANIM_RUN_TOP))
 		{
-			// take swords out (or put them back, since it's the same animation but reversed)
-			setTopAnimation(ANIM_DRAW_SWORDS, true);
-			mTimer = 0;
+			mAnims[ANIM_HANDS_RELAXED]->setEnabled(false);
 		}
-		else if (evt.key == OIS::KC_E && !mSwordsDrawn)
-		{
-			if (mTopAnimID == ANIM_IDLE_TOP || mTopAnimID == ANIM_RUN_TOP)
-			{
-				// start dancing
-				setBaseAnimation(ANIM_DANCE, true);
-				setTopAnimation(ANIM_NONE);
-				// disable hand animation because the dance controls hands
-				mAnims[ANIM_HANDS_RELAXED]->setEnabled(false);
-			}
-			else if (mBaseAnimID == ANIM_DANCE)
-			{
-				// stop dancing
-				setBaseAnimation(ANIM_IDLE_BASE);
-				setTopAnimation(ANIM_IDLE_TOP);
-				// re-enable hand animation
-				mAnims[ANIM_HANDS_RELAXED]->setEnabled(true);
-			}
-		}
+#endif
 
 		// keep track of the player's intended direction
-		else if (evt.key == OIS::KC_W) mKeyDirection.z = -1;
+		if (evt.key == OIS::KC_W) mKeyDirection.z = -1;
 		else if (evt.key == OIS::KC_A) mKeyDirection.x = -1;
 		else if (evt.key == OIS::KC_S) mKeyDirection.z = 1;
 		else if (evt.key == OIS::KC_D) mKeyDirection.x = 1;
@@ -523,21 +503,6 @@ public:
 		else if(evt.key == OIS::KC_N)
 		{
 			m_SmoothingDelta = -1;
-		}
-
-		else if (evt.key == OIS::KC_SPACE && (mTopAnimID == ANIM_IDLE_TOP || mTopAnimID == ANIM_RUN_TOP))
-		{
-			// jump if on ground
-			setBaseAnimation(ANIM_JUMP_START, true);
-			setTopAnimation(ANIM_NONE);
-			mTimer = 0;
-		}
-
-		if (!mKeyDirection.isZeroLength() && mBaseAnimID == ANIM_IDLE_BASE)
-		{
-			// start running if not already moving and the player wants to move
-			setBaseAnimation(ANIM_RUN_BASE, true);
-			if (mTopAnimID == ANIM_IDLE_TOP) setTopAnimation(ANIM_RUN_TOP, true);
 		}
 	}
 
@@ -564,12 +529,14 @@ public:
 			m_SmoothingDelta = 0;
 		}
 
+#ifdef TODO_ANIMATION
 		if (mKeyDirection.isZeroLength() && mBaseAnimID == ANIM_RUN_BASE)
 		{
 			// stop running if already moving and the player doesn't want to move
 			setBaseAnimation(ANIM_IDLE_BASE);
 			if (mTopAnimID == ANIM_RUN_TOP) setTopAnimation(ANIM_IDLE_TOP);
 		}
+#endif
 	}
 
 #if OGRE_PLATFORM == OGRE_PLATFORM_IPHONE
@@ -581,12 +548,14 @@ public:
 
 	void injectMouseDown(const OIS::MultiTouchEvent& evt)
 	{
+#ifdef TODO_ANIMATION
 		if (mSwordsDrawn && (mTopAnimID == ANIM_IDLE_TOP || mTopAnimID == ANIM_RUN_TOP))
 		{
 			// if swords are out, and character's not doing something weird, then SLICE!
             setTopAnimation(ANIM_SLICE_VERTICAL, true);
 			mTimer = 0;
 		}
+#endif
 	}
 #else
 	void injectMouseMove(const OIS::MouseEvent& evt)
@@ -597,6 +566,7 @@ public:
 
 	void injectMouseDown(const OIS::MouseEvent& evt, OIS::MouseButtonID id)
 	{
+#ifdef TODO_ANIMATION
 		if (mSwordsDrawn && (mTopAnimID == ANIM_IDLE_TOP || mTopAnimID == ANIM_RUN_TOP))
 		{
 			// if swords are out, and character's not doing something weird, then SLICE!
@@ -604,6 +574,7 @@ public:
 			else if (id == OIS::MB_Right) setTopAnimation(ANIM_SLICE_HORIZONTAL, true);
 			mTimer = 0;
 		}
+#endif
 	}
 #endif
 
@@ -613,42 +584,17 @@ private:
 	{
 		// create main model
 		mBodyNode = sceneMgr->getRootSceneNode()->createChildSceneNode(Vector3::UNIT_Y * CHAR_HEIGHT);
-		mBodyEnt = sceneMgr->createEntity("SinbadBody", "Sinbad.mesh");
+		mBodyEnt = sceneMgr->createEntity("SinbadBody", mMeshFile);
 		mBodyNode->attachObject(mBodyEnt);
-
-		// create swords and attach to sheath
-		mSword1 = sceneMgr->createEntity("SinbadSword1", "Sword.mesh");
-		mSword2 = sceneMgr->createEntity("SinbadSword2", "Sword.mesh");
-		mBodyEnt->attachObjectToBone("Sheath.L", mSword1);
-		mBodyEnt->attachObjectToBone("Sheath.R", mSword2);
-
-		// create a couple of ribbon trails for the swords, just for fun
-		NameValuePairList params;
-		params["numberOfChains"] = "2";
-		params["maxElements"] = "80";
-		mSwordTrail = (RibbonTrail*)sceneMgr->createMovableObject("RibbonTrail", &params);
-		mSwordTrail->setMaterialName("Examples/LightRibbonTrail");
-		mSwordTrail->setTrailLength(20);
-		mSwordTrail->setVisible(false);
-		sceneMgr->getRootSceneNode()->attachObject(mSwordTrail);
-
-
-		for (int i = 0; i < 2; i++)
-		{
-			mSwordTrail->setInitialColour(i, 1, 0.8, 0);
-			mSwordTrail->setColourChange(i, 0.75, 1.25, 1.25, 1.25);
-			mSwordTrail->setWidthChange(i, 1);
-			mSwordTrail->setInitialWidth(i, 0.5);
-		}
 
 		mKeyDirection = Vector3::ZERO;
 		mVerticalVelocity = 0;
 	}
 	void setupBone(const String& name,const Ogre::Radian& angle, const Vector3 axis)
 	{
-		
+
 		Quaternion q;
-		q.FromAngleAxis(angle,axis);	 
+		q.FromAngleAxis(angle,axis);
 		setupBone(name, q);
 
 	}
@@ -657,13 +603,13 @@ private:
 		Ogre::Bone* bone = mBodyEnt->getSkeleton()->getBone(name);
 		bone->setManuallyControlled(true);
 		bone->setInheritOrientation(false);
-		
+
 		bone->resetOrientation();
-		
+
 		bone->yaw(yaw);
 		bone->pitch(pitch);
 		bone->roll(roll);
-	
+
 		//Matrix3 mat = bone->getLocalAxes();
 		bone->setInitialState();
 
@@ -673,115 +619,89 @@ private:
 		Ogre::Bone* bone = mBodyEnt->getSkeleton()->getBone(name);
 		bone->setManuallyControlled(true);
 		bone->setInheritOrientation(false);
-		
+
 		bone->resetOrientation();
 		bone->setOrientation(q);
-	
+
+		bone->setInitialState();
+	}
+
+	void setupBone(const String &name)
+	{
+		Ogre::Bone* bone = mBodyEnt->getSkeleton()->getBone(name);
+
+		Ogre::Quaternion initial = bone->_getDerivedOrientation();
+		bone->setManuallyControlled(true);
+		bone->setInheritOrientation(false);
+
+		bone->resetToInitialState();
+		bone->resetOrientation();
+		bone->setOrientation(initial);
 		bone->setInitialState();
 	}
 
 	void setupAnimations()
 	{
 		// this is very important due to the nature of the exported animations
-		mBodyEnt->getSkeleton()->setBlendMode(ANIMBLEND_CUMULATIVE);	
-
-		String animNames[] =
-		{"IdleBase", "IdleTop", "RunBase", "RunTop", "HandsClosed", "HandsRelaxed", "DrawSwords",
-		"SliceVertical", "SliceHorizontal", "Dance", "JumpStart", "JumpLoop", "JumpEnd"};
+		mBodyEnt->getSkeleton()->setBlendMode(ANIMBLEND_CUMULATIVE);
 
 		//set all to manualy controlled
 		//Ogre::Bone* handleLeft = mBodyEnt->getSkeleton()->getBone("Hand.L");
 		//handleLeft->setManuallyControlled(true);
-		
-		//Ogre::Matrix3 mat;
-		Ogre::Quaternion q = Quaternion::IDENTITY;
-		Quaternion q2,q3;
-		Vector3 xAxis,yAxis,zAxis;
-		q.FromAngleAxis(Ogre::Degree(90),Vector3(0,0,-1));
-		q.ToAxes(xAxis,yAxis,zAxis);
-		q2.FromAngleAxis(Ogre::Degree(90),xAxis);
-		setupBone("Humerus.L",q*q2);
-		q.FromAngleAxis(Ogre::Degree(90),Vector3(0,0,1));
-		q.ToAxes(xAxis,yAxis,zAxis);
-		q2.FromAngleAxis(Ogre::Degree(90),xAxis);
-		setupBone("Humerus.R",q*q2);
-		
-		q.FromAngleAxis(Ogre::Degree(90),Vector3(0,0,-1));	 
-		q2.FromAngleAxis(Ogre::Degree(45),Vector3(0,-1,0));
-		
-		setupBone("Ulna.L",q*q2);
-
-		q.FromAngleAxis(Ogre::Degree(90),Vector3(0,0,1));	 	
-		setupBone("Ulna.R",q*q2.Inverse());
-		
-		q.FromAngleAxis(Ogre::Degree(180),Vector3(0,1,0));
-		setupBone("Chest",q);
-		setupBone("Stomach",q);
-		q.FromAngleAxis(Ogre::Degree(180),Vector3(1,0,0));	 	
-		q2.FromAngleAxis(Ogre::Degree(180),Vector3(0,1,0));
-		setupBone("Thigh.L",q*q2);
-		setupBone("Thigh.R",q*q2);
-		setupBone("Calf.L",q*q2);
-		setupBone("Calf.R",q*q2);
-		setupBone("Root",Degree(0),Degree(0),Degree(0));
 
 		//rotate the body
 		//mBodyNode->yaw(Degree(0),Node::TransformSpace::TS_WORLD);
-				
-		Skeleton* skel = mBodyEnt->getSkeleton();
-		
-		Ogre::Skeleton::BoneIterator bi = skel->getBoneIterator();
-		
-		// populate our animation list
-		for (int i = 0; i < NUM_ANIMS; i++)
-		{
-			mAnims[i] = mBodyEnt->getAnimationState(animNames[i]);
-			mAnims[i]->setLoop(true);
-			mFadingIn[i] = false;
-			mFadingOut[i] = false;
-			
-			// disable animation updates
-			Animation* anim = mBodyEnt->getSkeleton()->getAnimation(animNames[i]);
 
-			anim->destroyNodeTrack(mBodyEnt->getSkeleton()->getBone("Ulna.L")->getHandle());
-			anim->destroyNodeTrack(mBodyEnt->getSkeleton()->getBone("Ulna.R")->getHandle());
-			anim->destroyNodeTrack(mBodyEnt->getSkeleton()->getBone("Humerus.L")->getHandle());
-			anim->destroyNodeTrack(mBodyEnt->getSkeleton()->getBone("Humerus.R")->getHandle());
-			anim->destroyNodeTrack(mBodyEnt->getSkeleton()->getBone("Stomach")->getHandle());
-			anim->destroyNodeTrack(mBodyEnt->getSkeleton()->getBone("Chest")->getHandle());
-			anim->destroyNodeTrack(mBodyEnt->getSkeleton()->getBone("Thigh.L")->getHandle());
-			anim->destroyNodeTrack(mBodyEnt->getSkeleton()->getBone("Thigh.R")->getHandle());
-			anim->destroyNodeTrack(mBodyEnt->getSkeleton()->getBone("Calf.L")->getHandle());
-			anim->destroyNodeTrack(mBodyEnt->getSkeleton()->getBone("Calf.R")->getHandle());
-			anim->destroyNodeTrack(mBodyEnt->getSkeleton()->getBone("Root")->getHandle());
+		Skeleton* skel = mBodyEnt->getSkeleton();
+
+		// setup skeleton
+		std::map<std::string, XnSkeletonJoint >::iterator iter;
+		for (iter = mBonesMap.begin(); iter != mBonesMap.end(); iter++) {
+			setupBone(iter->first);
 		}
 
+		Ogre::AnimationStateSet *eass = mBodyEnt->getAllAnimationStates();
+		if (eass) {
+			Ogre::AnimationStateIterator it = eass->getAnimationStateIterator();
+			int i = 0;
+			while (it.hasMoreElements()) {
+				Ogre::AnimationState *eas = it.getNext();
+
+				mAnims.push_back(eas);
+				eas->setLoop(true);
+				mFadingIn.push_back(false);
+				mFadingOut.push_back(false);
+
+				// disable animation updates
+				Animation* anim = mBodyEnt->getSkeleton()->getAnimation(eas->getAnimationName());
+
+				for (iter = mBonesMap.begin(); iter != mBonesMap.end(); iter++) {
+					anim->destroyNodeTrack(mBodyEnt->getSkeleton()->getBone(iter->first)->getHandle());
+				}
+				i++;
+			}
+		}
+
+#ifdef TODO_ANIMATION
 		// start off in the idle state (top and bottom together)
 		setBaseAnimation(ANIM_IDLE_BASE);
 		setTopAnimation(ANIM_IDLE_TOP);
 
 		// relax the hands since we're not holding anything
 		mAnims[ANIM_HANDS_RELAXED]->setEnabled(true);
-
-		mSwordsDrawn = false;
+#endif
 	}
+
 	void resetBonesToInitialState()
 	{
 		Skeleton* skel = mBodyEnt->getSkeleton();
-		skel->getBone("Ulna.L")->resetToInitialState();
-		skel->getBone("Ulna.R")->resetToInitialState();
-		skel->getBone("Humerus.L")->resetToInitialState();
-		skel->getBone("Humerus.R")->resetToInitialState();
-		skel->getBone("Stomach")->resetToInitialState();
-		skel->getBone("Chest")->resetToInitialState();
-		skel->getBone("Thigh.L")->resetToInitialState();
-		skel->getBone("Thigh.R")->resetToInitialState();
-		skel->getBone("Calf.L")->resetToInitialState();
-		skel->getBone("Calf.R")->resetToInitialState();
-		skel->getBone("Root")->resetToInitialState();
-		
-		
+		std::map<String, XnSkeletonJoint >::iterator iter;
+		for (iter = mBonesMap.begin(); iter != mBonesMap.end(); iter++)
+		{
+			skel->getBone(iter->first)->resetToInitialState();
+		}
 	}
+
 	void setupCamera(Camera* cam)
 	{
 		// create a pivot at roughly the character's shoulder
@@ -815,29 +735,25 @@ private:
 		Ogre::Quaternion newQ = Quaternion::IDENTITY;
 
 		// Get the openNI bone info
-		xn::SkeletonCapability pUserSkel = m_UserGenerator.GetSkeletonCap();		
+		xn::SkeletonCapability pUserSkel = m_UserGenerator.GetSkeletonCap();
 		XnSkeletonJointOrientation jointOri;
 		pUserSkel.GetSkeletonJointOrientation(m_candidateID, skelJoint, jointOri);
 
 		static float deg = 0;
 		if(jointOri.fConfidence > 0 )
 		{
-			XnVector3D col1 = xnCreatePoint3D(jointOri.orientation.elements[0], jointOri.orientation.elements[3], jointOri.orientation.elements[6]);
-			XnVector3D col2 = xnCreatePoint3D(jointOri.orientation.elements[1], jointOri.orientation.elements[4], jointOri.orientation.elements[7]);
-			XnVector3D col3 = xnCreatePoint3D(jointOri.orientation.elements[2], jointOri.orientation.elements[5], jointOri.orientation.elements[8]);
-	
 			Ogre::Matrix3 matOri(jointOri.orientation.elements[0],-jointOri.orientation.elements[1],jointOri.orientation.elements[2],
 								-jointOri.orientation.elements[3],jointOri.orientation.elements[4],-jointOri.orientation.elements[5],
 								jointOri.orientation.elements[6],-jointOri.orientation.elements[7],jointOri.orientation.elements[8]);
 			Quaternion q;
-			
+
 			newQ.FromRotationMatrix(matOri);
-			
+
 			bone->resetOrientation(); //in order for the conversion from world to local to work.
 			newQ = bone->convertWorldToLocalOrientation(newQ);
-			
-			bone->setOrientation(newQ*qI);			
-		} 
+
+			bone->setOrientation(newQ*qI);
+		}
 	}
 
 	void PSupdateBody(Real deltaTime)
@@ -862,7 +778,7 @@ private:
 			blah.append(Ogre::StringConverter::toString((Real)m_SmoothingFactor));
 			//m_help->setParamValue("Smoothing", blah);
 		}
-		
+
 		// check for start/end pose
 		if (IN_POSE_FOR_LONG_TIME == m_pEndPoseDetector->checkPoseDuration())
 		{
@@ -877,7 +793,7 @@ private:
 			// but make sure we're not in a session already -- nuke the session generator
 			m_pSessionManager->EndSession();
 			m_pQuitFlow->SetActive(m_pQuitSSlider);
-			
+
 			suppress = false;
 			bNewUser = true;
 
@@ -888,14 +804,14 @@ private:
 		m_pStartPoseDetector->checkPoseDuration();
 
 		Skeleton* skel = mBodyEnt->getSkeleton();
-		Ogre::Bone* rootBone = skel->getBone("Root");
+		Ogre::Bone* rootBone = skel->getBone(mRootBoneName);
 
 		XnSkeletonJointPosition torsoPos;
-		
+
 		if (pUserSkel.IsTracking(m_candidateID))
 		{
 			if(bNewUser)
-			{			
+			{
 				pUserSkel.GetSkeletonJointPosition(m_candidateID, XN_SKEL_TORSO, torsoPos);
 				if(torsoPos.fConfidence > 0.5)
 				{
@@ -906,21 +822,14 @@ private:
 				}
 			}
 
-			transformBone("Stomach",XN_SKEL_TORSO, true);
-			transformBone("Waist", XN_SKEL_WAIST);
-			transformBone("Root", XN_SKEL_WAIST);
-			transformBone("Chest",XN_SKEL_TORSO, true);
-			transformBone("Humerus.L",XN_SKEL_LEFT_SHOULDER);
-			transformBone("Humerus.R",XN_SKEL_RIGHT_SHOULDER);
-			transformBone("Ulna.L",XN_SKEL_LEFT_ELBOW);
-			transformBone("Ulna.R",XN_SKEL_RIGHT_ELBOW);
-			transformBone("Thigh.L",XN_SKEL_LEFT_HIP);
-			transformBone("Thigh.R",XN_SKEL_RIGHT_HIP);
-			transformBone("Calf.L",XN_SKEL_LEFT_KNEE);
-			transformBone("Calf.R",XN_SKEL_RIGHT_KNEE);
+			std::map<std::string, XnSkeletonJoint >::iterator iter;
+			for (iter = mBonesMap.begin(); iter != mBonesMap.end(); iter++)
+			{
+				transformBone(iter->first, iter->second);
+			}
 
 			if(!bNewUser)
-			{			 
+			{
 				pUserSkel.GetSkeletonJointPosition(m_candidateID, XN_SKEL_TORSO, torsoPos);
 				Vector3 newPos;
 				newPos.x = -torsoPos.position.X;
@@ -947,44 +856,6 @@ private:
 					rootBone->setPosition(newPos2);
 				}
 			}
-	
-			//do gestures for swards
-			if ((mTopAnimID == ANIM_IDLE_TOP || mTopAnimID == ANIM_RUN_TOP))
-			{
-				XnSkeletonJointPosition headPos;
-				XnSkeletonJointPosition leftHand;
-				XnSkeletonJointPosition rightHand;
-				pUserSkel.GetSkeletonJointPosition(m_candidateID, XN_SKEL_HEAD, headPos);
-				pUserSkel.GetSkeletonJointPosition(m_candidateID, XN_SKEL_LEFT_HAND, leftHand);
-				pUserSkel.GetSkeletonJointPosition(m_candidateID, XN_SKEL_RIGHT_HAND, rightHand);
-				if(leftHand.fConfidence > 0 && headPos.fConfidence > 0)
-				{
-					XnV3DVector leftvec = XnV3DVector(leftHand.position);
-					XnV3DVector rightvec = XnV3DVector(rightHand.position);
-					XnV3DVector headvec = XnV3DVector(headPos.position);
-					XnV3DVector tempvec;
-					tempvec = leftvec - rightvec;
-					if(tempvec.MagnitudeSquared() < 50000)
-					{
-						tempvec = leftvec - headvec;
-						if(!bRightAfterSwardsPositionChanged &&
-							tempvec.MagnitudeSquared() < 100000)
-						{
-
-							if(leftHand.position.Z+150 > headPos.position.Z)
-							{
-								// take swords out (or put them back, since it's the same animation but reversed)
-								setTopAnimation(ANIM_DRAW_SWORDS, true);
-								mTimer = 0;
-								bRightAfterSwardsPositionChanged = true;
-							}
-						}
-					} else
-					{
-						bRightAfterSwardsPositionChanged = false;
-					}
-				}	
-			}
 		} // end if player calibrated
 		else
 		{
@@ -1001,7 +872,7 @@ private:
 	{
 		mGoalDirection = Vector3::ZERO;   // we will calculate this
 
-		if (mKeyDirection != Vector3::ZERO && mBaseAnimID != ANIM_DANCE)
+		if (mKeyDirection != Vector3::ZERO)
 		{
 			// calculate actually goal direction in world based on player's key directions
 			mGoalDirection += mKeyDirection.z * mCameraNode->getOrientation().zAxis();
@@ -1015,36 +886,17 @@ private:
 			Real yawToGoal = toGoal.getYaw().valueDegrees();
 			// this is how much the character CAN turn this frame
 			Real yawAtSpeed = yawToGoal / Math::Abs(yawToGoal) * deltaTime * TURN_SPEED;
-			// reduce "turnability" if we're in midair
-			if (mBaseAnimID == ANIM_JUMP_LOOP) yawAtSpeed *= 0.2f;
 
 			// turn as much as we can, but not more than we need to
 			if (yawToGoal < 0) yawToGoal = std::min<Real>(0, std::max<Real>(yawToGoal, yawAtSpeed)); //yawToGoal = Math::Clamp<Real>(yawToGoal, yawAtSpeed, 0);
 			else if (yawToGoal > 0) yawToGoal = std::max<Real>(0, std::min<Real>(yawToGoal, yawAtSpeed)); //yawToGoal = Math::Clamp<Real>(yawToGoal, 0, yawAtSpeed);
-			
-			
+
+
 			mBodyNode->yaw(Degree(yawToGoal));
 
 			// move in current body direction (not the goal direction)
 			mBodyNode->translate(0, 0, deltaTime * RUN_SPEED * mAnims[mBaseAnimID]->getWeight(),
 				Node::TS_LOCAL);
-		}
-
-		if (mBaseAnimID == ANIM_JUMP_LOOP)
-		{
-			// if we're jumping, add a vertical offset too, and apply gravity
-			mBodyNode->translate(0, mVerticalVelocity * deltaTime, 0, Node::TS_LOCAL);
-			mVerticalVelocity -= GRAVITY * deltaTime;
-			
-			Vector3 pos = mBodyNode->getPosition();
-			if (pos.y <= CHAR_HEIGHT)
-			{
-				// if we've hit the ground, change to landing state
-				pos.y = CHAR_HEIGHT;
-				mBodyNode->setPosition(pos);
-				setBaseAnimation(ANIM_JUMP_END, true);
-				mTimer = 0;
-			}
 		}
 	}
 
@@ -1054,94 +906,6 @@ private:
 		Real topAnimSpeed = 1;
 
 		mTimer += deltaTime;
-
-		if (mTopAnimID == ANIM_DRAW_SWORDS)
-		{
-			// flip the draw swords animation if we need to put it back
-			topAnimSpeed = mSwordsDrawn ? -1 : 1;
-
-			// half-way through the animation is when the hand grasps the handles...
-			if (mTimer >= mAnims[mTopAnimID]->getLength() / 2 &&
-				mTimer - deltaTime < mAnims[mTopAnimID]->getLength() / 2)
-			{
-				// so transfer the swords from the sheaths to the hands
-				mBodyEnt->detachAllObjectsFromBone();
-				mBodyEnt->attachObjectToBone(mSwordsDrawn ? "Sheath.L" : "Handle.L", mSword1);
-				mBodyEnt->attachObjectToBone(mSwordsDrawn ? "Sheath.R" : "Handle.R", mSword2);
-				// change the hand state to grab or let go
-				mAnims[ANIM_HANDS_CLOSED]->setEnabled(!mSwordsDrawn);
-				mAnims[ANIM_HANDS_RELAXED]->setEnabled(mSwordsDrawn);
-
-				// toggle sword trails
-				if (mSwordsDrawn)
-				{
-					mSwordTrail->setVisible(false);
-					mSwordTrail->removeNode(mSword1->getParentNode());
-					mSwordTrail->removeNode(mSword2->getParentNode());
-				}
-				else
-				{
-					mSwordTrail->setVisible(true);
-					mSwordTrail->addNode(mSword1->getParentNode());
-					mSwordTrail->addNode(mSword2->getParentNode());
-				}
-			}
-
-			if (mTimer >= mAnims[mTopAnimID]->getLength())
-			{
-				// animation is finished, so return to what we were doing before
-				if (mBaseAnimID == ANIM_IDLE_BASE) setTopAnimation(ANIM_IDLE_TOP);
-				else
-				{
-					setTopAnimation(ANIM_RUN_TOP);
-					mAnims[ANIM_RUN_TOP]->setTimePosition(mAnims[ANIM_RUN_BASE]->getTimePosition());
-				}
-				mSwordsDrawn = !mSwordsDrawn;
-			}
-		}
-		else if (mTopAnimID == ANIM_SLICE_VERTICAL || mTopAnimID == ANIM_SLICE_HORIZONTAL)
-		{
-			if (mTimer >= mAnims[mTopAnimID]->getLength())
-			{
-				// animation is finished, so return to what we were doing before
-				if (mBaseAnimID == ANIM_IDLE_BASE) setTopAnimation(ANIM_IDLE_TOP);
-				else
-				{
-					setTopAnimation(ANIM_RUN_TOP);
-					mAnims[ANIM_RUN_TOP]->setTimePosition(mAnims[ANIM_RUN_BASE]->getTimePosition());
-				}
-			}
-
-			// don't sway hips from side to side when slicing. that's just embarrasing.
-			if (mBaseAnimID == ANIM_IDLE_BASE) baseAnimSpeed = 0;
-		}
-		else if (mBaseAnimID == ANIM_JUMP_START)
-		{
-			if (mTimer >= mAnims[mBaseAnimID]->getLength())
-			{
-				// takeoff animation finished, so time to leave the ground!
-				setBaseAnimation(ANIM_JUMP_LOOP, true);
-				// apply a jump acceleration to the character
-				mVerticalVelocity = JUMP_ACCEL;
-			}
-		}
-		else if (mBaseAnimID == ANIM_JUMP_END)
-		{
-			if (mTimer >= mAnims[mBaseAnimID]->getLength())
-			{
-				// safely landed, so go back to running or idling
-				if (mKeyDirection == Vector3::ZERO)
-				{
-					setBaseAnimation(ANIM_IDLE_BASE);
-					setTopAnimation(ANIM_IDLE_TOP);
-				}
-				else
-				{
-					setBaseAnimation(ANIM_RUN_BASE, true);
-					setTopAnimation(ANIM_RUN_TOP, true);
-				}
-			}
-		}
 
 		// increment the current base and top animation times
 		if (mBaseAnimID != ANIM_NONE) mAnims[mBaseAnimID]->addTime(deltaTime * baseAnimSpeed);
@@ -1153,7 +917,7 @@ private:
 
 	void fadeAnimations(Real deltaTime)
 	{
-		for (int i = 0; i < NUM_ANIMS; i++)
+		for (int i = 0; i < mAnims.size(); i++)
 		{
 			if (mFadingIn[i])
 			{
@@ -1198,7 +962,7 @@ private:
 			mCameraPivot->pitch(Degree(deltaPitch), Node::TS_LOCAL);
 			mPivotPitch += deltaPitch;
 		}
-		
+
 		Real dist = mCameraGoal->_getDerivedPosition().distance(mCameraPivot->_getDerivedPosition());
 		Real distChange = deltaZoom * dist;
 
@@ -1212,7 +976,7 @@ private:
 
 	void setBaseAnimation(AnimID id, bool reset = false)
 	{
-		if (mBaseAnimID >= 0 && mBaseAnimID < NUM_ANIMS)
+		if (mBaseAnimID > 0 && mBaseAnimID < mAnims.size())
 		{
 			// if we have an old animation, fade it out
 			mFadingIn[mBaseAnimID] = false;
@@ -1221,7 +985,7 @@ private:
 
 		mBaseAnimID = id;
 
-		if (id != ANIM_NONE)
+		if (id > 0)
 		{
 			// if we have a new animation, enable it and fade it in
 			mAnims[id]->setEnabled(true);
@@ -1234,7 +998,7 @@ private:
 
 	void setTopAnimation(AnimID id, bool reset = false)
 	{
-		if (mTopAnimID >= 0 && mTopAnimID < NUM_ANIMS)
+		if (mTopAnimID > 0 && mTopAnimID < mAnims.size())
 		{
 			// if we have an old animation, fade it out
 			mFadingIn[mTopAnimID] = false;
@@ -1243,7 +1007,7 @@ private:
 
 		mTopAnimID = id;
 
-		if (id != ANIM_NONE)
+		if (id > 0)
 		{
 			// if we have a new animation, enable it and fade it in
 			mAnims[id]->setEnabled(true);
@@ -1261,15 +1025,14 @@ private:
 	SceneNode* mCameraNode;
 	Real mPivotPitch;
 	Entity* mBodyEnt;
-	Entity* mSword1;
-	Entity* mSword2;
-	RibbonTrail* mSwordTrail;
-	AnimationState* mAnims[NUM_ANIMS];    // master animation list
+	String mMeshFile; // the model to load
+	std::vector<AnimationState*> mAnims;    // master animation list
+	std::map<String, XnSkeletonJoint> mBonesMap; // map from ogre bone to kinect bone
+	String mRootBoneName; // name of root bone
 	AnimID mBaseAnimID;                   // current base (full- or lower-body) animation
 	AnimID mTopAnimID;                    // current top (upper-body) animation
-	bool mFadingIn[NUM_ANIMS];            // which animations are fading in
-	bool mFadingOut[NUM_ANIMS];           // which animations are fading out
-	bool mSwordsDrawn;
+	std::vector<bool> mFadingIn;            // which animations are fading in
+	std::vector<bool> mFadingOut;           // which animations are fading out
 	Vector3 mKeyDirection;      // player's local intended direction based on WASD keys
 	Vector3 mGoalDirection;     // actual intended direction in world-space
 	Real mVerticalVelocity;     // for jumping
