@@ -253,9 +253,6 @@ public:
 
 	SinbadCharacterController(Camera* cam) : mMeshFile("Sinbad.mesh"), mBaseAnimID(ANIM_NONE), mTopAnimID(ANIM_NONE)
 	{
-
-		// TODO: these are model dependent.
-		mRootBoneName = "Root";
 		// map mesh bones to openni bones
 		mBonesMap["Stomach"] = XN_SKEL_TORSO;
 		mBonesMap["Waist"] = XN_SKEL_WAIST;
@@ -653,6 +650,16 @@ private:
 		//mBodyNode->yaw(Degree(0),Node::TransformSpace::TS_WORLD);
 
 		Skeleton* skel = mBodyEnt->getSkeleton();
+
+		// rootBone: let's assume the first root bone is the correct one.
+		{
+			Ogre::Skeleton::BoneIterator iter = skel->getRootBoneIterator();
+			while (iter.hasMoreElements()) {
+				Ogre::Bone* currentBone = static_cast<Ogre::Bone*>(iter.getNext());
+				this->mRootBoneName = currentBone->getName();
+				break;
+			}
+		}
 
 		// setup skeleton
 		std::map<std::string, XnSkeletonJoint >::iterator iter;
